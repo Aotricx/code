@@ -91,7 +91,7 @@ namespace AutoSummon.UI
             const int spacing = 10;
             const int panelHeight = 60;
             const int buttonHeight = 30;
-            const int labelHeight = 30; // Height of the Minions label
+            const int labelHeight = 30; // Height of the Sentries label
 
             int topOffset = 80 + interactionPanels.Count * 70 + 40 + index * 70;
 
@@ -163,7 +163,6 @@ namespace AutoSummon.UI
             UpdateMainPanelHeight();
         }
 
-
         private bool IsSentrySummoningItem(Item item)
         {
             if (item != null && item.DamageType == DamageClass.Summon)
@@ -174,6 +173,7 @@ namespace AutoSummon.UI
             }
             return false;
         }
+    
 
 
         protected bool shouldSummon()
@@ -299,43 +299,39 @@ namespace AutoSummon.UI
                     // Calculate the new quantity
                     int newQuantity = Math.Max(0, currentQuantity + change);
 
-                    // Validate that the total from all panels (including this change) does not exceed maxSentries
-                    if (newQuantity > 0 && totalFromPanels > maxSentries)
+                    // Validate against max sentries
+                    if (newQuantity > 0 && totalFromPanels - currentQuantity + newQuantity > maxSentries)
                     {
                         Main.NewText("Cannot exceed max sentry slots!", Microsoft.Xna.Framework.Color.Red);
-
-                        // Trigger summoning/desummoning logic
-                        DesummonAllMinions(); // Clear all current minions
-                        DesummonAllSentries(); // Clear all current sentries
-                        SummonAllItems();      // Resummon based on updated quantities
-
-                        // Update the Sentry Slots label
-                        UpdateSentrySlotsLabel();
-                        return;
+                        return; // Stop processing if the limit is exceeded
                     }
 
                     // Update the quantity label
                     quantityLabel.SetText($"Sentries: {newQuantity}");
 
-                    // Trigger summoning/desummoning logic
-                    DesummonAllMinions(); // Clear all current minions
-                    DesummonAllSentries(); // Clear all current sentries
-                    SummonAllItems();      // Resummon based on updated quantities
-
-                    // Update the Sentry Slots label
-                    UpdateSentrySlotsLabel();
+                    // Trigger updated summoning/desummoning logic
+                    RefreshSummons();
                     break;
                 }
             }
         }
 
+        private void RefreshSummons()
+        {
+            // Clears and re-summons all minions and sentries
+            DesummonAllMinions();
+            DesummonAllSentries();
+            SummonAllItems();
 
+            // Update the sentry slots label
+            UpdateSentrySlotsLabel();
+        }
         private void UpdateSentrySlotsLabel()
         {
             int currentSentries = GetCurrentSentryCount();
             int maxSentries = Main.LocalPlayer.maxTurrets;
 
-            sentrySlotsLabel.SetText($"Sentry Slots: {currentSentries}/{maxSentries}");
+            sentrySlotsLabel?.SetText($"Sentry Slots: {currentSentries}/{maxSentries}");
         }
 
         private int GetTotalMinions()
