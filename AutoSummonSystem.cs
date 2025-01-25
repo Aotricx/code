@@ -9,33 +9,79 @@ using System.Collections.Generic;
 using Terraria.DataStructures;
 using System.Linq;
 using Terraria.ModLoader.IO;
+using AutoSummon.UI;
+using System;
+using Terraria.GameContent.UI.Elements;
 
 namespace AutoSummon
 {
     public class AutoSummonSystem : ModSystem
     {
+
+        private int lastMaxMinions = 0;
+        private int lastMaxTurrets = 0;
+
         public override void PostUpdateEverything()
         {
             var player = Main.LocalPlayer;
             var autoSummonPlayer = player.GetModPlayer<AutoSummonPlayer>();
+            var draggableUIPanel = AutoSummon.DraggableUIPanelInstance;
 
-            if (player.dead || player.ghost || autoSummonPlayer.tempSummonDisabled)
+            if (player.dead || player.ghost || autoSummonPlayer.tempSummonDisabled || draggableUIPanel == null)
             {
                 autoSummonPlayer.tempSummonDisabled = false; // Reset the temporary summon disabled flag
                 return;
             }
 
-            // Check and manage minion summons
+            // Check for changes in max minions
+            if (player.maxMinions != lastMaxMinions)
+            {
+                lastMaxMinions = player.maxMinions;
+                HandleSlotChange(draggableUIPanel.interactionPanels, player.maxMinions, draggableUIPanel.GetTotalMinions());
+            }
+
+            // Check for changes in max sentries
+            if (player.maxTurrets != lastMaxTurrets)
+            {
+                lastMaxTurrets = player.maxTurrets;
+                HandleSlotChange(draggableUIPanel.sentryPanels, player.maxTurrets, draggableUIPanel.GetTotalSentries());
+            }
+
+            // Optional: Handle resummon logic here (already in place for minions/sentries)
             if (autoSummonPlayer.MinionItems.Count > 0 && player.maxMinions > 0)
             {
                 MaintainMinions(player, autoSummonPlayer);
             }
 
-            // Check and manage sentry summons
             if (autoSummonPlayer.SentryItems.Count > 0 && player.maxTurrets > 0)
             {
                 MaintainSentries(player, autoSummonPlayer);
             }
+        }
+
+        private void HandleSlotChange(List<UIPanel> panels, int maxSlots, int totalUsedSlots)
+        {
+            foreach (var panel in panels)
+            {
+                var data = panel.GetTag<InteractionPanelData>();
+                if (data == null || data.ItemSlot.Item == null || data.ItemSlot.Item.IsAir)
+                    continue;
+
+                // Adjust only filled panels
+                if (data.IsFilled)
+                {
+                    // Recalculate the new quantity for the panel
+                    int currentQuantity = int.Parse(data.QuantityLabel.Text.Replace("Minions: ", "").Replace("Sentries: ", ""));
+                    int remainingSlots = maxSlots - (totalUsedSlots - currentQuantity);
+                    int newQuantity = Math.Min(remainingSlots, maxSlots);
+
+                    // Update the panel's quantity
+                    data.QuantityLabel.SetText($"{(panels == AutoSummon.DraggableUIPanelInstance.sentryPanels ? "Sentries" : "Minions")}: {newQuantity}");
+                }
+            }
+
+            // Refresh summons to ensure in-game projectiles reflect updated quantities
+            AutoSummon.DraggableUIPanelInstance.RefreshSummons();
         }
 
         private void MaintainMinions(Player player, AutoSummonPlayer autoSummonPlayer)
