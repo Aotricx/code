@@ -22,7 +22,7 @@ namespace AutoSummon.UI
         private UIText titleText;
         private UIText minionSlotsLabel;
         private UIText sentrySlotsLabel;
-        private List<UIPanel> interactionPanels = new();
+        public List<UIPanel> interactionPanels = new();
         public List<UIPanel> sentryPanels = new();
         private Dictionary<CustomItemSlot, Item> lastItemStates = new();
         private Vector2 offset;
@@ -81,9 +81,6 @@ namespace AutoSummon.UI
             };
             mainPanel.Append(sentrySlotsLabel);
 
-            // Create the first interaction panel
-            CreateInteractionPanel(0);
-            CreateSentryPanel(0);
             CreateSentryRespawnButton();
             CreateRespawnButton();
         }
@@ -110,14 +107,16 @@ namespace AutoSummon.UI
                 // Toggle the respawn functionality
                 RefreshSummons();
 
-                // Provide feedback via chat
-                Main.NewText("Summons refreshed!", Color.Cyan);
+                if (Main.netMode != NetmodeID.Server)
+                {
+                    Main.NewText("Summons refreshed!", Color.Cyan);
+                }
             };
 
             mainPanel.Append(RefreshButton);
         }
 
-        private void CreateSentryRespawnButton()
+        public void CreateSentryRespawnButton()
         {
             // Load the book icon (Confuse button texture)
             var Yes = ModContent.Request<Texture2D>("AutoSummon/Assets/UI/RespawnSentry");
@@ -144,15 +143,18 @@ namespace AutoSummon.UI
                 respawnSentriesEnabled = !respawnSentriesEnabled;
                 sentryButton.SetImage(respawnSentriesEnabled ? Yes : No);
                 // Provide feedback via chat
-                Main.NewText(respawnSentriesEnabled
-                    ? "Sentries respawn when they off screen: On"
-                    : "Sentries respawn when they off screen: Off", Color.Cyan);
+                if (Main.netMode != NetmodeID.Server){ // Ensure it runs only for the local client
+                    Main.NewText(respawnSentriesEnabled
+                    ? "Sentries respawn when they're off screen: On"
+                    : "Sentries respawn when they're off screen: Off", Color.Cyan);
+                }
             };
 
             mainPanel.Append(sentryButton);
         }
 
-        private void CreateSentryPanel(int index)
+
+        public void CreateSentryPanel(int index = 0, Item item = null)
         {
             const int itemSlotSize = 48;
             const int buttonWidth = 50;
@@ -299,9 +301,8 @@ namespace AutoSummon.UI
         }
 
         private void UpdateQuantity(UIPanel panel, int change)
-        { 
+        {
             int maxMinions = Main.LocalPlayer.maxMinions;      // Maximum allowed minions
-            float currentMinionCount = GetCurrentMinionCount(); // Current minion slots in use
             int totalFromPanels = GetTotalMinions();           // Total minion slots requested from all panels
 
             foreach (var element in panel.Children)
@@ -313,7 +314,7 @@ namespace AutoSummon.UI
                     int currentQuantity = int.TryParse(currentText, out int parsedQuantity) ? parsedQuantity : 0;
 
                     // Calculate the new total minions if the quantity changes
-                    int newQuantity = currentQuantity + change;
+                    int newQuantity = Math.Max(0, currentQuantity + change);
 
                     // Validate that the new total minions do not exceed maxMinions
                     if (newQuantity > 0 && totalFromPanels - currentQuantity + newQuantity > maxMinions)
@@ -321,17 +322,17 @@ namespace AutoSummon.UI
                         return;
                     }
 
-                    // Update the quantity, ensuring it doesn't go below 0
-                    newQuantity = Math.Max(0, newQuantity);
-
                     // Update the quantity label
                     quantityLabel.SetText($"Minions: {newQuantity}");
 
+                    // Get the panel's data and update its state
                     var data = panel.GetTag<InteractionPanelData>();
+                    if (data == null) return;
+
                     if (change == -1)
                     {
                         data.FillButton.SetText("Fill"); // Update button text
-                        data.IsFilled = false; // Mark as not filled
+                        data.IsFilled = false;          // Mark as not filled
                     }
                     else if (change == +1 && newQuantity == maxMinions)
                     {
@@ -340,15 +341,70 @@ namespace AutoSummon.UI
                         data.IsFilled = true;
                     }
 
-                    // Trigger summoning/desummoning logic
-                    RefreshSummons(); // Clear all current minions
+                    // Recalculate and adjust quantities for all other filled panels
+                    RecalculateFilledPanels();
 
-                    // Update the Minion Slots label
+                    // Trigger summoning/desummoning logic
+                    RefreshSummons();
                     UpdateMinionSlotsLabel();
                     break;
                 }
             }
         }
+
+
+        private void RecalculateFilledPanels()
+        {
+            var player = Main.LocalPlayer;
+
+            // Handle Minion Panels
+            int maxMinions = player.maxMinions; // Maximum allowed minions
+            int totalUsedMinionSlots = GetTotalMinions(); // Total currently used minion slots
+
+            foreach (var panel in interactionPanels)
+            {
+                var data = panel.GetTag<InteractionPanelData>();
+                if (data == null || !data.IsFilled) continue; // Skip panels that aren't marked as filled
+
+                // Parse the current quantity
+                int currentQuantity = int.Parse(data.QuantityLabel.Text.Replace("Minions: ", ""));
+
+                // Calculate the remaining available slots for this panel
+                int remainingSlots = maxMinions - (totalUsedMinionSlots - currentQuantity);
+                int newQuantity = Math.Min(remainingSlots, maxMinions);
+
+                // Update the panel's quantity if it has changed
+                if (newQuantity != currentQuantity)
+                {
+                    data.QuantityLabel.SetText($"Minions: {newQuantity}");
+                }
+            }
+
+            // Handle Sentry Panels
+            int maxSentries = player.maxTurrets; // Maximum allowed sentries
+            int totalUsedSentrySlots = GetTotalSentries(); // Total currently used sentry slots
+
+            foreach (var panel in sentryPanels)
+            {
+                var data = panel.GetTag<InteractionPanelData>();
+                if (data == null || !data.IsFilled) continue; // Skip panels that aren't marked as filled
+
+                // Parse the current quantity
+                int currentQuantity = int.Parse(data.QuantityLabel.Text.Replace("Sentries: ", ""));
+
+                // Calculate the remaining available slots for this panel
+                int remainingSlots = maxSentries - (totalUsedSentrySlots - currentQuantity);
+                int newQuantity = Math.Min(remainingSlots, maxSentries);
+
+                // Update the panel's quantity if it has changed
+                if (newQuantity != currentQuantity)
+                {
+                    data.QuantityLabel.SetText($"Sentries: {newQuantity}");
+                }
+            }
+        }
+
+
 
         private void UpdateMinionSlotsLabel()
         {
@@ -361,11 +417,7 @@ namespace AutoSummon.UI
         private void UpdateSentryQuantity(UIPanel panel, int change)
         {
             var data = panel.GetTag<InteractionPanelData>();
-            if (change == -1)
-            {
-                data.FillButton.SetText("Fill"); // Update button text
-                data.IsFilled = false; // Mark as not filled
-            }
+            if (data == null) return;
 
             int maxSentries = Main.LocalPlayer.maxTurrets;     // Maximum allowed sentries
             int totalFromPanels = GetTotalSentries();          // Total sentry slots requested from all panels
@@ -387,6 +439,9 @@ namespace AutoSummon.UI
                         return; // Stop processing if the limit is exceeded
                     }
 
+                    // Update the quantity label
+                    quantityLabel.SetText($"Sentries: {newQuantity}");
+
                     if (change == -1)
                     {
                         data.FillButton.SetText("Fill"); // Update button text
@@ -399,8 +454,8 @@ namespace AutoSummon.UI
                         data.IsFilled = true;
                     }
 
-                    // Update the quantity label
-                    quantityLabel.SetText($"Sentries: {newQuantity}");
+                    // Recalculate and adjust quantities for all other filled panels
+                    RecalculateFilledPanels();
 
                     // Trigger updated summoning/desummoning logic
                     RefreshSummons();
@@ -409,7 +464,8 @@ namespace AutoSummon.UI
             }
         }
 
-        private void RefreshSummons()
+
+        public void RefreshSummons()
         {
             // Clears and re-summons all minions and sentries
             DesummonAllMinions();
@@ -431,7 +487,7 @@ namespace AutoSummon.UI
             sentrySlotsLabel?.SetText($"Sentry Slots: {currentSentries}/{maxSentries}");
         }
 
-        private int GetTotalMinions()
+        public int GetTotalMinions()
         {
             int total = 0;
             foreach (var panel in interactionPanels)
@@ -447,7 +503,7 @@ namespace AutoSummon.UI
             return total;
         }
 
-        private int GetTotalSentries()
+        public int GetTotalSentries()
         {
             int total = 0;
             foreach (var panel in sentryPanels)
@@ -463,7 +519,7 @@ namespace AutoSummon.UI
             return total;
         }
 
-        private void CreateInteractionPanel(int index)
+        public void CreateInteractionPanel(int index = 0, Item item = null)
         {
             const int itemSlotSize = 48;  // Width/Height of the item slot
             const int buttonWidth = 50;  // Width of buttons
@@ -869,6 +925,20 @@ namespace AutoSummon.UI
 
             // Recalculate and resummon
             RefreshSummons();
+        }
+
+        public void ClearPanels()
+        {
+            foreach (var panel in interactionPanels)
+            {
+                mainPanel.RemoveChild(panel);
+            }
+            foreach (var panel in sentryPanels)
+            {
+                mainPanel.RemoveChild(panel);
+            }
+            interactionPanels.Clear();
+            sentryPanels.Clear();
         }
 
         private void StartDrag(UIMouseEvent evt, UIElement listeningElement)
